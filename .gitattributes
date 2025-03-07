@@ -1,0 +1,12 @@
+# Set default behavior for all files
+* text=auto
+
+# Force specific file types to use LF line endings
+*.py text eol=lf
+*.md text eol=lf
+*.ini text eol=lf
+*.mako text eol=lf
+
+# Binary files should not be modified
+*.png binary
+*.jpg binary
