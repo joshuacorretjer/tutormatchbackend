@@ -2,6 +2,7 @@ from datetime import datetime
 import uuid
 from app.extensions import db
 from sqlalchemy.dialects.postgresql import UUID  # For PostgreSQL
+from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import Numeric
 
 ### User Model ###
@@ -17,6 +18,14 @@ class User(db.Model):
     account_type = db.Column(db.String(50), nullable=False)
     password = db.Column(db.String(255), nullable=False)  # Store hashed passwords
     date_joined = db.Column(db.Date, default=db.func.current_date())
+
+    def set_password(self, password):
+        """Hash the password and store it."""
+        self.password = generate_password_hash(password)
+
+    def check_password(self, password):
+        """Verify the password against the hashed version."""
+        return check_password_hash(self.password, password)
 
 ### Class Subject Model ###
 
