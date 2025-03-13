@@ -37,7 +37,7 @@ TutorMatch is a platform that connects students with tutors for personalized lea
 
 Before you begin, ensure you have the following installed:
 
-- **Python 3.8+**
+- **Python 3.8-3.12**
 - **Pip** (Python package manager)
 - **Git** (for version control)
 - **PostgreSQL** (or any other database supported by SQLAlchemy)
