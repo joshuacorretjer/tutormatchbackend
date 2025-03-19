@@ -129,3 +129,14 @@ class DirectMessage(db.Model):
 
     sender = db.relationship('User', foreign_keys=[sender_id], backref='sent_messages')
     receiver = db.relationship('User', foreign_keys=[receiver_id], backref='received_messages')
+
+### Tutor Class Model ###
+
+class TutorClass(db.Model):
+    __tablename__ = "tutor_class"
+
+    tutor_id = db.Column(UUID(as_uuid=True), db.ForeignKey('tutor.tutor_id'), primary_key=True)
+    class_id = db.Column(UUID(as_uuid=True), db.ForeignKey('class.class_id'), primary_key=True)
+
+    tutor = db.relationship('Tutor', backref='classes')
+    class_ref = db.relationship('Class', backref='tutors')
