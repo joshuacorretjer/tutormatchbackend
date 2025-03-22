@@ -2,6 +2,7 @@ from uuid import UUID
 from flask import request, jsonify
 from flask_jwt_extended import jwt_required
 from ..models import db, ClassSubject, Class
+from ..utils.decorators import admin_required  # Import the decorator
 from . import api_bp  # Import the Blueprint
 
 # Helper function to validate UUID
@@ -14,7 +15,7 @@ def is_valid_uuid(value):
 
 # Adds a subject
 @api_bp.route('/admin/subjects', methods=['POST'])
-@jwt_required()
+@admin_required
 def add_subject():
     data = request.json
     name = data.get('name')
@@ -34,7 +35,7 @@ def add_subject():
 
 # Updates a subject
 @api_bp.route('/admin/subjects/<uuid:subject_id>', methods=['PUT'])
-@jwt_required()
+@admin_required
 def update_subject(subject_id):
     if not is_valid_uuid(subject_id):
         return jsonify({"message": "Invalid subject ID format"}), 400
@@ -58,7 +59,7 @@ def update_subject(subject_id):
 
 # Deletes a subject
 @api_bp.route('/admin/subjects/<uuid:subject_id>', methods=['DELETE'])
-@jwt_required()
+@admin_required
 def delete_subject(subject_id):
     if not is_valid_uuid(subject_id):
         return jsonify({"message": "Invalid subject ID format"}), 400
@@ -78,7 +79,7 @@ def delete_subject(subject_id):
 
 # Adds a class under a subject
 @api_bp.route('/admin/classes', methods=['POST'])
-@jwt_required()
+@admin_required
 def add_class():
     data = request.json
     subject_id = data.get('subject_id')
@@ -108,7 +109,7 @@ def add_class():
 
 # Updates a class
 @api_bp.route('/admin/classes/<uuid:class_id>', methods=['PUT'])
-@jwt_required()
+@admin_required
 def update_class(class_id):
     if not is_valid_uuid(class_id):
         return jsonify({"message": "Invalid class ID format"}), 400
@@ -136,7 +137,7 @@ def update_class(class_id):
 
 # Deletes a class
 @api_bp.route('/admin/classes/<uuid:class_id>', methods=['DELETE'])
-@jwt_required()
+@admin_required
 def delete_class(class_id):
     if not is_valid_uuid(class_id):
         return jsonify({"message": "Invalid class ID format"}), 400

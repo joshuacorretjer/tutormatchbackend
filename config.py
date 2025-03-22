@@ -13,5 +13,5 @@ class Config:
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
 
     # Database settings
-    SQLALCHEMY_DATABASE_URI = 'postgresql://tutormatch:password1234@localhost/tutormatch'
+    SQLALCHEMY_DATABASE_URI = 'postgresql://tutormatch:password1234@localhost/tutormatch_db'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
