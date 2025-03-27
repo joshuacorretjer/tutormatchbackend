@@ -1,7 +1,7 @@
 from uuid import UUID
 from flask import request, jsonify
 from flask_jwt_extended import jwt_required
-from ..models import db, ClassSubject, Class
+from ..models import db, ClassSubject, Class, User
 from ..utils.decorators import admin_required  # Import the decorator
 from . import api_bp  # Import the Blueprint
 
@@ -12,6 +12,63 @@ def is_valid_uuid(value):
         return True
     except ValueError:
         return False
+
+# Gets the list of all users
+@api_bp.route('/admin/users', methods=['GET'])
+@admin_required
+def get_users():
+    users = User.query.all()
+    user_list = [{
+        "user_id": str(user.user_id),
+        "username": user.username,
+        "email": user.email,
+        "account_type": user.account_type,
+        "date_joined": user.date_joined.isoformat()
+    } for user in users]
+    return jsonify(user_list), 200
+
+# Creates a user
+@api_bp.route('/admin/users', methods=['POST'])
+@admin_required
+def create_user():
+    data = request.json
+    new_user = User(
+        username=data['username'],
+        email=data['email'],
+        account_type=data.get('account_type', 'student')
+    )
+    new_user.set_password(data['password'])
+    db.session.add(new_user)
+    db.session.commit()
+    return jsonify({"message": "User created successfully"}), 201
+
+# Updates a user
+@api_bp.route('/admin/users/<uuid:user_id>', methods=['PUT'])
+@admin_required
+def update_user(user_id):
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+
+    data = request.json
+    user.username = data.get('username', user.username)
+    user.email = data.get('email', user.email)
+    user.account_type = data.get('account_type', user.account_type)
+
+    db.session.commit()
+    return jsonify({"message": "User updated successfully"}), 200
+
+# Deletes a user
+@api_bp.route('/admin/users/<uuid:user_id>', methods=['DELETE'])
+@admin_required
+def delete_user(user_id):
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({"message": "User deleted successfully"}), 200
 
 # Adds a subject
 @api_bp.route('/admin/subjects', methods=['POST'])
