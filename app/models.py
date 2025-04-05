@@ -3,7 +3,7 @@ import uuid
 from app.extensions import db
 from sqlalchemy.dialects.postgresql import UUID  # For PostgreSQL
 from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy import Numeric
+from sqlalchemy import Numeric, UniqueConstraint
 
 ### User Model ###
 
@@ -33,7 +33,14 @@ class ClassSubject(db.Model):
     __tablename__ = "class_subject"
 
     subject_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    subject_name = db.Column(db.String(100), nullable=False)
+    subject_name = db.Column(db.String(100), nullable=False, unique=True)
+
+    __table_args__ = (
+        UniqueConstraint('subject_name', name='uq_class_subject_subject_name'),
+    )
+
+    # Ensure TutorSubject entries are removed when a subject is deleted
+    tutors = db.relationship('TutorSubject', backref='class_subject', cascade="all, delete-orphan", passive_deletes=True)
 
 ### Class Model ###
 
@@ -46,6 +53,9 @@ class Class(db.Model):
     class_code = db.Column(db.String(50), nullable=False)
 
     subject = db.relationship('ClassSubject', backref='classes')
+
+    # Ensure TutorClass entries are removed when a class is deleted
+    tutors = db.relationship('TutorClass', backref='class_relationship', cascade="all, delete-orphan", passive_deletes=True)
 
 ### Student Model ###
 
@@ -71,6 +81,10 @@ class Tutor(db.Model):
 
     user = db.relationship('User', backref='tutors')
 
+    # Ensure TutorSubject and TutorClass entries are deleted when a Tutor is removed
+    subjects = db.relationship('TutorSubject', backref='tutor_relationship', cascade="all, delete-orphan", passive_deletes=True)
+    classes = db.relationship('TutorClass', backref='tutor_relationship', cascade="all, delete-orphan", passive_deletes=True)
+
 ### Tutor Subject Model ###
 
 class TutorSubject(db.Model):
@@ -79,8 +93,12 @@ class TutorSubject(db.Model):
     tutor_id = db.Column(UUID(as_uuid=True), db.ForeignKey('tutor.tutor_id'), primary_key=True)
     subject_id = db.Column(UUID(as_uuid=True), db.ForeignKey('class_subject.subject_id'), primary_key=True)
 
-    tutor = db.relationship('Tutor', backref='subjects')
-    subject = db.relationship('ClassSubject', backref='tutors')
+    __table_args__ = (
+        UniqueConstraint('tutor_id', 'subject_id', name='uq_tutor_subject_tutor_subject'),
+    )
+
+    tutor = db.relationship('Tutor', backref='subject_relationship')  # Renamed backref here to avoid conflict
+    subject = db.relationship('ClassSubject', backref='tutor_relationship')
 
 ### Tutoring Session Model ###
 
@@ -138,5 +156,9 @@ class TutorClass(db.Model):
     tutor_id = db.Column(UUID(as_uuid=True), db.ForeignKey('tutor.tutor_id'), primary_key=True)
     class_id = db.Column(UUID(as_uuid=True), db.ForeignKey('class.class_id'), primary_key=True)
 
-    tutor = db.relationship('Tutor', backref='classes')
-    class_ref = db.relationship('Class', backref='tutors')
+    __table_args__ = (
+        UniqueConstraint('tutor_id', 'class_id', name='uq_tutor_class_tutor_class'),
+    )
+
+    tutor = db.relationship('Tutor', backref='class_relationship')
+    class_ref = db.relationship('Class', backref='tutor_relationship')
