@@ -135,44 +135,6 @@ def get_tutor_details(tutor_id):
         "classes": class_list
     }
 
-# Assign a tutor to a subject
-@api_bp.route('/tutors/<uuid:tutor_id>/subjects', methods=['POST'])
-@jwt_required()
-def assign_tutor_to_subject(tutor_id):
-    if not is_valid_uuid(tutor_id):
-        return jsonify({"message": "Invalid tutor ID format"}), 400
-    
-    data = request.json
-    subject_id = data.get('subject_id')
-    
-    if not subject_id or not is_valid_uuid(subject_id):
-        return jsonify({"message": "Invalid or missing subject ID"}), 400
-
-    tutor = Tutor.query.get(tutor_id)
-    subject = ClassSubject.query.get(subject_id)
-
-    if not tutor:
-        return jsonify({"message": "Tutor not found"}), 404
-    if not subject:
-        return jsonify({"message": "Subject not found"}), 404
-
-    # Check if the tutor is already associated with the subject
-    existing_assignment = TutorSubject.query.filter_by(tutor_id=tutor_id, subject_id=subject_id).first()
-    if existing_assignment:
-        return jsonify({"message": "Tutor is already assigned to this subject"}), 400
-
-    # Create the subject assignment
-    tutor_subject = TutorSubject(tutor_id=tutor_id, subject_id=subject_id)
-    db.session.add(tutor_subject)
-
-    try:
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"message": f"Error occurred: {str(e)}"}), 500
-
-    return jsonify({"message": "Tutor assigned to subject", "tutor_id": str(tutor.tutor_id), "subject_id": str(subject.subject_id)}), 201
-
 # Removes a tutor from a subject
 @api_bp.route('/tutors/<uuid:tutor_id>/subjects/<uuid:subject_id>', methods=['DELETE'])
 @jwt_required()
