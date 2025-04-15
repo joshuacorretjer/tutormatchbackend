@@ -1,162 +1,77 @@
-from uuid import UUID
-from flask import request, jsonify
-from flask_jwt_extended import jwt_required
-from ..models import db, Tutor, TutorSubject, ClassSubject, Class, TutorClass  # Import relevant models
-from . import api_bp  # Import the Blueprint
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
+from datetime import datetime
+from ..models import db, User, Tutor, Student, Class, Subject, TimeSlot, Review
+from ..utils.decorators import tutor_required, student_required, role_required
+from . import api_bp
 
-# Helper function to validate UUID
-def is_valid_uuid(value):
+
+# --- Tutor Routes ---
+@api_bp.route('/tutor/availability', methods=['POST'])
+@tutor_required
+def create_availability():
+    tutor_id = get_jwt_identity()
+    data = request.get_json()
+    
     try:
-        UUID(value)
-        return True
-    except ValueError:
-        return False
-
-# Associates tutor with subjects
-@api_bp.route('/tutors/<uuid:tutor_id>/subjects', methods=['POST'])
-@jwt_required()
-def associate_tutor_with_subjects(tutor_id):
-    tutor = Tutor.query.get(tutor_id)
-    if not tutor:
-        return jsonify({"message": "Tutor not found"}), 404
-
-    data = request.json
-    subject_ids = data.get("subject_ids", [])
-
-    if not subject_ids:
-        return jsonify({"message": "No subjects provided"}), 400
-
-    for subject_id in subject_ids:
-        subject = ClassSubject.query.get(subject_id)
-        if subject:
-            tutor_subject = TutorSubject(tutor_id=tutor_id, subject_id=subject_id)
-            db.session.add(tutor_subject)
-
-    db.session.commit()
-    return jsonify({"message": "Tutor associated with subjects successfully"}), 200
-
-
-# Associates tutor with classes
-@api_bp.route('/tutors/<uuid:tutor_id>/classes', methods=['POST'])
-@jwt_required()
-def associate_tutor_with_classes(tutor_id):
-    tutor = Tutor.query.get(tutor_id)
-    if not tutor:
-        return jsonify({"message": "Tutor not found"}), 404
-
-    data = request.json
-    class_ids = data.get("class_ids", [])
-
-    if not class_ids:
-        return jsonify({"message": "No classes provided"}), 400
-
-    for class_id in class_ids:
-        class_instance = Class.query.get(class_id)
-        if class_instance:
-            tutor_class = TutorClass(tutor_id=tutor_id, class_id=class_id)
-            db.session.add(tutor_class)
-
-    db.session.commit()
-    return jsonify({"message": "Tutor associated with classes successfully"}), 200
-
-# Get all tutors
-@api_bp.route('/tutors', methods=['GET'])
-@jwt_required()
-def get_tutors():
-    tutors = Tutor.query.all()
-    if not tutors:
-        return jsonify({"message": "No tutors found"}), 404
-
-    tutor_list = []
-    for tutor in tutors:
-        # Get all subjects associated with the tutor
-        subjects = (
-            db.session.query(ClassSubject)
-            .join(TutorSubject)
-            .filter(TutorSubject.tutor_id == tutor.tutor_id)
-            .all()
-        )
-        subject_list = [{"subject_id": str(subject.subject_id), "subject_name": subject.subject_name} for subject in subjects]
-
-        # Get all classes associated with the tutor
-        classes = (
-            db.session.query(Class)
-            .join(TutorClass)
-            .filter(TutorClass.tutor_id == tutor.tutor_id)
-            .all()
-        )
-        class_list = [{"class_id": str(class_instance.class_id), "class_name": class_instance.class_name, "class_code": class_instance.class_code} for class_instance in classes]
-
-        tutor_list.append({
-            "tutor_id": str(tutor.tutor_id),
-            "name": f"{tutor.user.first_name} {tutor.user.last_name}",
-            "email": tutor.user.email,
-            "available_hours": tutor.available_hours,
-            "hourly_rate": float(tutor.hourly_rate),
-            "subjects": subject_list,
-            "classes": class_list
-        })
-
-    return jsonify({"tutors": tutor_list}), 200
-
-# Get a specific tutor's details
-@api_bp.route('/tutors/<uuid:tutor_id>', methods=['GET'])
-@jwt_required()
-def get_tutor_details(tutor_id):
-    tutor = Tutor.query.get(tutor_id)
-    if not tutor:
-        return jsonify({"message": "Tutor not found"}), 404
-
-    # Get all subjects associated with the tutor
-    subjects = (
-        db.session.query(ClassSubject)
-        .join(TutorSubject)
-        .filter(TutorSubject.tutor_id == tutor_id)
-        .all()
+        start_time = datetime.fromisoformat(data['start_time'])
+        end_time = datetime.fromisoformat(data['end_time'])
+    except (KeyError, ValueError):
+        return jsonify({"message": "Invalid time format (use ISO 8601)"}), 400
+    
+    if start_time >= end_time:
+        return jsonify({"message": "End time must be after start time"}), 400
+    
+    slot = TimeSlot(
+        tutor_id=tutor_id,
+        start_time=start_time,
+        end_time=end_time,
+        status='available'
     )
-    subject_list = [{"subject_id": str(subject.subject_id), "subject_name": subject.subject_name} for subject in subjects]
-
-    # Get all classes associated with the tutor
-    classes = (
-        db.session.query(Class)
-        .join(TutorClass)
-        .filter(TutorClass.tutor_id == tutor_id)
-        .all()
-    )
-    class_list = [{"class_id": str(class_instance.class_id), "class_name": class_instance.class_name, "class_code": class_instance.class_code} for class_instance in classes]
-
-    tutor_data = {
-        "tutor_id": str(tutor.tutor_id),
-        "name": f"{tutor.user.first_name} {tutor.user.last_name}",
-        "email": tutor.user.email,
-        "available_hours": tutor.available_hours,
-        "hourly_rate": float(tutor.hourly_rate),
-        "subjects": subject_list,
-        "classes": class_list
-    }
-
-# Removes a tutor from a subject
-@api_bp.route('/tutors/<uuid:tutor_id>/subjects/<uuid:subject_id>', methods=['DELETE'])
-@jwt_required()
-def remove_tutor_from_subject(tutor_id, subject_id):
-    tutor_subject = TutorSubject.query.filter_by(tutor_id=tutor_id, subject_id=subject_id).first()
-    if not tutor_subject:
-        return jsonify({"message": "Tutor is not associated with this subject"}), 404
-
-    db.session.delete(tutor_subject)
+    db.session.add(slot)
     db.session.commit()
+    
+    return jsonify({
+        "id": str(slot.id),
+        "start_time": slot.start_time.isoformat(),
+        "end_time": slot.end_time.isoformat(),
+        "status": slot.status
+    }), 201
 
-    return jsonify({"message": "Tutor removed from subject successfully"}), 200
+@api_bp.route('/tutor/sessions', methods=['GET'])
+@tutor_required
+def get_tutor_sessions():
+    tutor_id = get_jwt_identity()
+    status_filter = request.args.get('status', 'upcoming')
+    
+    query = TimeSlot.query.filter_by(tutor_id=tutor_id)
+    
+    if status_filter == 'upcoming':
+        query = query.filter(TimeSlot.start_time > datetime.utcnow())
+    elif status_filter == 'completed':
+        query = query.filter(TimeSlot.end_time < datetime.utcnow())
+    
+    sessions = query.order_by(TimeSlot.start_time).all()
+    
+    return jsonify([{
+        "id": str(s.id),
+        "start_time": s.start_time.isoformat(),
+        "end_time": s.end_time.isoformat(),
+        "status": s.status,
+        "student": {
+            "name": f"{s.student.user.first_name} {s.student.user.last_name}",
+            "major": s.student.major
+        } if s.student else None,
+        "class": {
+            "name": s.class_ref.name,
+            "code": s.class_ref.code
+        } if s.class_ref else None
+    } for s in sessions]), 200
 
-# Removes a tutor from a class
-@api_bp.route('/tutors/<uuid:tutor_id>/classes/<uuid:class_id>', methods=['DELETE'])
-@jwt_required()
-def remove_tutor_from_class(tutor_id, class_id):
-    tutor_class = TutorClass.query.filter_by(tutor_id=tutor_id, class_id=class_id).first()
-    if not tutor_class:
-        return jsonify({"message": "Tutor is not associated with this class"}), 404
-
-    db.session.delete(tutor_class)
-    db.session.commit()
-
-    return jsonify({"message": "Tutor removed from class successfully"}), 200
+@api_bp.route('/<uuid:tutor_id>', methods=['GET'])
+def get_tutor_profile(tutor_id):
+    tutor = Tutor.query.get_or_404(tutor_id)
+    
+    include_reviews = request.args.get('reviews', 'false').lower() == 'true'
+    
+    return jsonify(tutor.to_dict(include_reviews=include_reviews)), 200

@@ -1,164 +1,156 @@
-from datetime import datetime
 import uuid
+from datetime import datetime
 from app.extensions import db
-from sqlalchemy.dialects.postgresql import UUID  # For PostgreSQL
+from sqlalchemy.dialects.postgresql import UUID
 from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy import Numeric, UniqueConstraint
+from sqlalchemy import Numeric, UniqueConstraint, func
 
 ### User Model ###
-
 class User(db.Model):
     __tablename__ = "user"
 
-    user_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)  # Changed from user_id to id
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     first_name = db.Column(db.String(100), nullable=False)
     last_name = db.Column(db.String(100), nullable=False)
     account_type = db.Column(db.String(50), nullable=False)
-    password = db.Column(db.String(255), nullable=False)  # Store hashed passwords
+    password = db.Column(db.String(255), nullable=False)
     date_joined = db.Column(db.Date, default=db.func.current_date())
 
     def set_password(self, password):
-        """Hash the password and store it."""
         self.password = generate_password_hash(password)
 
     def check_password(self, password):
-        """Verify the password against the hashed version."""
         return check_password_hash(self.password, password)
+    
+    # Relationships
+    student_profile = db.relationship('Student', back_populates='user', uselist=False, cascade='all, delete')
+    tutor_profile = db.relationship('Tutor', back_populates='user', uselist=False, cascade='all, delete')
 
-### Class Subject Model ###
-
-class ClassSubject(db.Model):
-    __tablename__ = "class_subject"
-
-    subject_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    subject_name = db.Column(db.String(100), nullable=False, unique=True)
-
+### Subject Model ###
+class Subject(db.Model):
+    __tablename__ = "subjects"
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = db.Column(db.String(100), unique=True, nullable=False)
+    code = db.Column(db.String(20), unique=True)
+    
     __table_args__ = (
-        UniqueConstraint('subject_name', name='uq_class_subject_subject_name'),
+        UniqueConstraint('name', name='uq_subject_name'),
+        UniqueConstraint('code', name='uq_subject_code'),
     )
-
-    # Ensure TutorSubject entries are removed when a subject is deleted
-    tutors = db.relationship('TutorSubject', backref='class_subject', cascade="all, delete-orphan", passive_deletes=True)
 
 ### Class Model ###
-
 class Class(db.Model):
-    __tablename__ = "class"
-
-    class_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    subject_id = db.Column(UUID(as_uuid=True), db.ForeignKey('class_subject.subject_id'), nullable=False)
-    class_name = db.Column(db.String(100), nullable=False)
-    class_code = db.Column(db.String(50), nullable=False)
-
-    subject = db.relationship('ClassSubject', backref='classes')
-
-    # Ensure TutorClass entries are removed when a class is deleted
-    tutors = db.relationship('TutorClass', backref='class_relationship', cascade="all, delete-orphan", passive_deletes=True)
-
-### Student Model ###
-
-class Student(db.Model):
-    __tablename__ = "student"
-
-    student_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('user.user_id'), nullable=False)
-    major = db.Column(db.String(100), nullable=False)
-    year = db.Column(db.Integer, nullable=False)
-
-    user = db.relationship('User', backref='students')
+    __tablename__ = "classes"
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    subject_id = db.Column(UUID(as_uuid=True), db.ForeignKey('subjects.id'), nullable=False)
+    section = db.Column(db.String(10))
+    
+    subject = db.relationship('Subject', backref='classes')
+    tutors = db.relationship('Tutor', secondary='tutor_class_association', back_populates='classes')
 
 ### Tutor Model ###
-
 class Tutor(db.Model):
-    __tablename__ = "tutor"
-
-    tutor_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('user.user_id'), nullable=False)
-    available_hours = db.Column(db.Text, nullable=True)
+    __tablename__ = "tutors"
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('user.id'), unique=True, nullable=False)
     hourly_rate = db.Column(Numeric(10, 2), nullable=False)
+    bio = db.Column(db.Text)
+    
+    # Relationships
+    user = db.relationship('User', back_populates='tutor_profile')
+    classes = db.relationship('Class', secondary='tutor_class_association', back_populates='tutors')
+    availability = db.relationship('TimeSlot', back_populates='tutor', cascade='all, delete-orphan')
+    reviews = db.relationship('Review', back_populates='tutor')
 
-    user = db.relationship('User', backref='tutors')
+    def calculate_average_rating(self):
+        avg_rating = db.session.query(
+            func.avg(Review.rating)
+        ).filter(Review.tutor_id == self.id).scalar()
+        return round(float(avg_rating or 0), 2)
 
-    # Ensure TutorSubject and TutorClass entries are deleted when a Tutor is removed
-    subjects = db.relationship('TutorSubject', backref='tutor_relationship', cascade="all, delete-orphan", passive_deletes=True)
-    classes = db.relationship('TutorClass', backref='tutor_relationship', cascade="all, delete-orphan", passive_deletes=True)
+    def get_rating_distribution(self):
+        distribution = db.session.query(
+            Review.rating,
+            func.count(Review.id)
+        ).filter(Review.tutor_id == self.id)\
+         .group_by(Review.rating)\
+         .order_by(Review.rating)\
+         .all()
+        return {str(rating): count for rating, count in distribution}
 
-### Tutor Subject Model ###
+    def to_dict(self, include_reviews=False):
+        data = {
+            "id": str(self.id),
+            "hourly_rate": float(self.hourly_rate),
+            "bio": self.bio,
+            "average_rating": self.calculate_average_rating(),
+            "total_reviews": len(self.reviews)
+        }
+        if include_reviews:
+            data["reviews"] = [r.to_dict() for r in self.reviews]
+            data["rating_distribution"] = self.get_rating_distribution()
+        return data
 
-class TutorSubject(db.Model):
-    __tablename__ = "tutor_subject"
+# Junction table for Tutor <-> Class
+tutor_class_association = db.Table(
+    'tutor_class_association',
+    db.Column('tutor_id', UUID(as_uuid=True), db.ForeignKey('tutors.id'), primary_key=True),
+    db.Column('class_id', UUID(as_uuid=True), db.ForeignKey('classes.id'), primary_key=True)
+)
 
-    tutor_id = db.Column(UUID(as_uuid=True), db.ForeignKey('tutor.tutor_id'), primary_key=True)
-    subject_id = db.Column(UUID(as_uuid=True), db.ForeignKey('class_subject.subject_id'), primary_key=True)
+### TimeSlot Model ###
+class TimeSlot(db.Model):
+    __tablename__ = "time_slots"
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tutor_id = db.Column(UUID(as_uuid=True), db.ForeignKey('tutors.id'), nullable=False)
+    start_time = db.Column(db.DateTime, nullable=False)
+    end_time = db.Column(db.DateTime, nullable=False)
+    status = db.Column(db.String(20), default='available')
+    student_id = db.Column(UUID(as_uuid=True), db.ForeignKey('students.id'))
+    
+    tutor = db.relationship('Tutor', back_populates='availability')
+    student = db.relationship('Student', backref='booked_sessions')
 
-    __table_args__ = (
-        UniqueConstraint('tutor_id', 'subject_id', name='uq_tutor_subject_tutor_subject'),
-    )
-
-    tutor = db.relationship('Tutor', backref='subject_relationship')  # Renamed backref here to avoid conflict
-    subject = db.relationship('ClassSubject', backref='tutor_relationship')
-
-### Tutoring Session Model ###
-
-class TutoringSession(db.Model):
-    __tablename__ = "tutoring_session"
-
-    session_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tutor_id = db.Column(UUID(as_uuid=True), db.ForeignKey('tutor.tutor_id'), nullable=False)
-    student_id = db.Column(UUID(as_uuid=True), db.ForeignKey('student.student_id'), nullable=False)
-    class_id = db.Column(UUID(as_uuid=True), db.ForeignKey('class.class_id'), nullable=False)
-    status = db.Column(db.String(50), nullable=False)  # Use a string to represent the status
-    date = db.Column(db.Date, nullable=False)
-    time = db.Column(db.Time, nullable=False)
-    duration = db.Column(Numeric(10, 2), nullable=False)
-    price = db.Column(Numeric(10, 2), nullable=False)
-
-    tutor = db.relationship('Tutor', backref='sessions')
-    student = db.relationship('Student', backref='sessions')
-    class_ref = db.relationship('Class', backref='sessions')
+### Student Model ###
+class Student(db.Model):
+    __tablename__ = "students"
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('user.id'), unique=True, nullable=False)
+    major = db.Column(db.String(100), nullable=False)
+    year = db.Column(db.Integer)
+    
+    # Relationships
+    user = db.relationship('User', back_populates='student_profile')
+    reviews = db.relationship('Review', back_populates='student')
 
 ### Review Model ###
-
 class Review(db.Model):
-    __tablename__ = "review"
-
-    review_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = db.Column(UUID(as_uuid=True), db.ForeignKey('tutoring_session.session_id'), nullable=False)
-    review_title = db.Column(db.String(200), nullable=True)
+    __tablename__ = "reviews"
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tutor_id = db.Column(UUID(as_uuid=True), db.ForeignKey('tutors.id'), nullable=False)
+    student_id = db.Column(UUID(as_uuid=True), db.ForeignKey('students.id'), nullable=False)
+    timeslot_id = db.Column(UUID(as_uuid=True), db.ForeignKey('time_slots.id'), unique=True, nullable=False)
     rating = db.Column(db.Integer, nullable=False)
-    feedback = db.Column(db.String(1000), nullable=True)
-    date = db.Column(db.Date, nullable=False)
-
-    session = db.relationship('TutoringSession', backref='reviews')
-
-### Direct Message Model ###
-
-class DirectMessage(db.Model):
-    __tablename__ = "direct_message"
-
-    message_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    sender_id = db.Column(UUID(as_uuid=True), db.ForeignKey('user.user_id'), nullable=False)
-    receiver_id = db.Column(UUID(as_uuid=True), db.ForeignKey('user.user_id'), nullable=False)
-    content = db.Column(db.String(1000), nullable=False)
-    timestamp = db.Column(db.TIMESTAMP, default=db.func.now(), nullable=False)
-    status = db.Column(db.String(50), nullable=False)  # Use a string to represent the message status
-
-    sender = db.relationship('User', foreign_keys=[sender_id], backref='sent_messages')
-    receiver = db.relationship('User', foreign_keys=[receiver_id], backref='received_messages')
-
-### Tutor Class Model ###
-
-class TutorClass(db.Model):
-    __tablename__ = "tutor_class"
-
-    tutor_id = db.Column(UUID(as_uuid=True), db.ForeignKey('tutor.tutor_id'), primary_key=True)
-    class_id = db.Column(UUID(as_uuid=True), db.ForeignKey('class.class_id'), primary_key=True)
-
+    comment = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
     __table_args__ = (
-        UniqueConstraint('tutor_id', 'class_id', name='uq_tutor_class_tutor_class'),
+        db.CheckConstraint('rating >= 1 AND rating <= 5', name='valid_rating'),
     )
 
-    tutor = db.relationship('Tutor', backref='class_relationship')
-    class_ref = db.relationship('Class', backref='tutor_relationship')
+    tutor = db.relationship('Tutor', back_populates='reviews')
+    student = db.relationship('Student', back_populates='reviews')
+    timeslot = db.relationship('TimeSlot', backref='review')
+
+    def to_dict(self):
+        return {
+            "id": str(self.id),
+            "rating": self.rating,
+            "comment": self.comment,
+            "created_at": self.created_at.isoformat(),
+            "student": {
+                "name": f"{self.student.user.first_name} {self.student.user.last_name}"
+            }
+        }
