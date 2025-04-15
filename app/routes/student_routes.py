@@ -72,7 +72,7 @@ def book_session():
         "start_time": slot.start_time.isoformat()
     }), 201
 
-@api_bp.route('/students/sessions/book', methods=['POST'])
+@api_bp.route('/students/sessions/book', methods=['POST'], endpoint='book_tutoring_session')  # Unique name
 @student_required
 def book_session():
     # Get current student ID from auth token
