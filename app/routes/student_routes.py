@@ -1,94 +1,121 @@
-from flask import request, jsonify
-from flask_jwt_extended import jwt_required
-from ..models import db, Student, Tutor, Class, ClassSubject, TutorSubject, TutorClass
-from . import api_bp  # Import the Blueprint
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
+from datetime import datetime
+from ..models import TutoringSession, db, User, Tutor, Student, Class, Subject, TimeSlot, Review
+from ..utils.decorators import student_required
+from . import api_bp
 
-# Helper function to serialize tutor data
-def serialize_tutor(tutor):
-    return {
-        "tutor_id": str(tutor.tutor_id),
-        "name": tutor.user.first_name + " " + tutor.user.last_name,
-        "available_hours": tutor.available_hours,
-        "hourly_rate": str(tutor.hourly_rate)
-    }
+@api_bp.route('/students/tutors', methods=['GET'])
+@student_required
+def find_tutors():
+    # Get query parameters
+    subject_name = request.args.get('subject')
+    class_id = request.args.get('class')
+    
+    # Base query
+    query = Tutor.query.join(User)
+    
+    # Apply filters
+    if subject_name:
+        query = query.join(Tutor.classes).join(Class).join(Subject)\
+                   .filter(Subject.name.ilike(f"%{subject_name}%"))
+    
+    if class_id:
+        query = query.join(Tutor.classes).filter(Class.id == class_id)
+    
+    tutors = query.distinct().all()
+    
+    return jsonify([{
+        "id": str(t.user.id),
+        "name": f"{t.user.first_name} {t.user.last_name}",
+        "hourly_rate": float(t.hourly_rate),
+        "bio": t.bio,
+        "average_rating": db.session.query(
+            db.func.avg(Review.rating)
+        ).filter(Review.tutor_id == t.id).scalar() or 0,
+        "upcoming_slots": [
+            s.start_time.isoformat() for s in 
+            TimeSlot.query.filter(
+                TimeSlot.tutor_id == t.id,
+                TimeSlot.status == 'available',
+                TimeSlot.start_time > datetime.utcnow()
+            ).limit(3).all()
+        ]
+    } for t in tutors]), 200
 
-# Gets all students
-@api_bp.route('/students', methods=['GET'])
-@jwt_required()
-def get_all_students():
-    students = Student.query.all()
-    students_list = [{"student_id": str(student.student_id), "name": student.user.first_name + " " + student.user.last_name, "major": student.major, "year": student.year} for student in students]
-    return jsonify(students_list), 200
+@api_bp.route('/students/sessions', methods=['POST'])
+@student_required
+def book_session():
+    student_id = get_jwt_identity()
+    data = request.get_json()
+    
+    slot = TimeSlot.query.filter_by(
+        id=data['slot_id'],
+        status='available'
+    ).first()
+    
+    if not slot:
+        return jsonify({"message": "Timeslot not available"}), 400
+    
+    # Verify student is enrolled in the class?
+    # Add your custom logic here
+    
+    slot.status = 'booked'
+    slot.student_id = student_id
+    slot.class_id = data['class_id']
+    
+    db.session.commit()
+    
+    return jsonify({
+        "message": "Session booked",
+        "session_id": str(slot.id),
+        "start_time": slot.start_time.isoformat()
+    }), 201
 
-# Gets a specific student's details
-@api_bp.route('/students/<uuid:student_id>', methods=['GET'])
-@jwt_required()
-def get_student_details(student_id):
-    student = Student.query.get(student_id)
-    if not student:
-        return jsonify({"message": "Student not found"}), 404
+@api_bp.route('/students/sessions/book', methods=['POST'], endpoint='book_tutoring_session')  # Unique name
+@student_required
+def book_session():
+    # Get current student ID from auth token
+    student_id = get_jwt_identity()
 
-    student_details = {
-        "student_id": str(student.student_id),
-        "name": student.user.first_name + " " + student.user.last_name,
-        "major": student.major,
-        "year": student.year,
-        "classes": [{"class_id": str(enrollment.class_ref.class_id), "class_name": enrollment.class_ref.class_name} for enrollment in student.classes],
-        "tutoring_sessions": [{"session_id": str(session.session_id), "date": str(session.date), "time": str(session.time), "status": session.status} for session in student.sessions]
-    }
-    return jsonify(student_details), 200
+    data = request.get_json()
+    timeslot_id = data.get('timeslot_id')  
 
-# Search tutors by subject
-@api_bp.route('/students/search/tutors/subject/<uuid:subject_id>', methods=['GET'])
-@jwt_required()
-def search_tutors_by_subject(subject_id):
-    tutors = (
-        db.session.query(Tutor)
-        .join(TutorSubject)
-        .filter(TutorSubject.subject_id == subject_id)
-        .all()
-    )
+    if not timeslot_id:
+        return jsonify({"error": "Timeslot ID is required"}), 400
 
-    if not tutors:
-        return jsonify({"message": "No tutors found for this subject"}), 404
+    # Rest of your code remains the same...
+    timeslot = TimeSlot.query.get(timeslot_id)
+    if not timeslot:
+        return jsonify({"error": "Timeslot not found"}), 404
 
-    tutor_list = [
-        {
-            "tutor_id": str(tutor.tutor_id),
-            "name": f"{tutor.user.first_name} {tutor.user.last_name}",
-            "email": tutor.user.email,
-            "available_hours": tutor.available_hours,
-            "hourly_rate": float(tutor.hourly_rate),
-        }
-        for tutor in tutors
-    ]
+    if timeslot.status != 'available':
+        return jsonify({"error": "Timeslot is not available"}), 400
 
-    return jsonify({"tutors": tutor_list}), 200
+    if timeslot.start_time < datetime.utcnow():
+        return jsonify({"error": "Cannot book past timeslots"}), 400
 
+    try:
+        timeslot.status = 'booked'
+        timeslot.student_id = student_id
 
-# Search tutors by class
-@api_bp.route('/students/search/tutors/class/<uuid:class_id>', methods=['GET'])
-@jwt_required()
-def search_tutors_by_class(class_id):
-    tutors = (
-        db.session.query(Tutor)
-        .join(TutorClass)
-        .filter(TutorClass.class_id == class_id)
-        .all()
-    )
+        session = TutoringSession(
+            timeslot_id=timeslot.id,
+            student_id=student_id,
+            tutor_id=timeslot.tutor_id
+        )
+        db.session.add(session)
+        db.session.commit()
 
-    if not tutors:
-        return jsonify({"message": "No tutors found for this class"}), 404
+        return jsonify({
+            "message": "Session booked successfully",
+            "session_id": str(session.id),
+            "timeslot_id": str(timeslot.id),
+            "tutor_id": str(timeslot.tutor_id),
+            "start_time": timeslot.start_time.isoformat(),
+            "end_time": timeslot.end_time.isoformat()
+        }), 200
 
-    tutor_list = [
-        {
-            "tutor_id": str(tutor.tutor_id),
-            "name": f"{tutor.user.first_name} {tutor.user.last_name}",
-            "email": tutor.user.email,
-            "available_hours": tutor.available_hours,
-            "hourly_rate": float(tutor.hourly_rate),
-        }
-        for tutor in tutors
-    ]
-
-    return jsonify({"tutors": tutor_list}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500

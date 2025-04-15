@@ -1,126 +1,202 @@
-from flask import jsonify, request
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from ..models import db, User, Student, Tutor
-from . import api_bp  # Import the Blueprint from the parent package
+from datetime import datetime
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import (
+    create_access_token, 
+    jwt_required, 
+    get_jwt_identity, 
+    get_jwt
+)
+from werkzeug.security import generate_password_hash, check_password_hash
+from ..models import Class, User, Student, Tutor, Subject
+from ..extensions import db, jwt
+from ..utils.decorators import tutor_required, student_required, account_type_required
+import uuid
+
+api_bp = Blueprint('api', __name__)
+
+# Token blacklist (consider using Redis in production)
+blacklist = set()
+
+# ======================
+# Authentication Routes
+# ======================
 
 
-@api_bp.route('/protected', methods=['GET'])
+@api_bp.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    
+    # Required fields check
+    required_fields = ['email', 'password', 'account_type', 'first_name', 'last_name']
+    if data['account_type'] == 'tutor':
+        required_fields.append('hourly_rate')
+
+    # ... validation logic ...
+
+    try:
+        user = User(
+            email=data['email'],
+            first_name=data['first_name'],
+            last_name=data['last_name'],
+            account_type=data['account_type']
+        )
+        user.set_password(data['password'])
+        db.session.add(user)
+        db.session.flush()  # Get user ID before creating tutor profile
+
+        # Critical: Create tutor profile for tutor accounts
+        if user.account_type == 'tutor':
+            tutor = Tutor(
+                user_id=user.id,  # This links user <-> tutor
+                hourly_rate=float(data['hourly_rate'])
+                # Add other tutor-specific fields
+            )
+            db.session.add(tutor)
+
+        db.session.commit()
+        return jsonify({"message": "User registered successfully"}), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
+
+@api_bp.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    username_or_email = data.get('username_or_email')  # Match JSON key exactly
+    password = data.get('password')
+
+    if not username_or_email or not password:
+        return jsonify({"message": "Username / email and password are required"}), 400
+
+    user = User.query.filter(
+        (User.username == username_or_email) | 
+        (User.email == username_or_email)
+    ).first()
+
+    if user and user.check_password(password):
+        access_token = create_access_token(
+            identity=str(user.id),
+            additional_claims={"account_type": user.account_type}
+        )
+        return jsonify(access_token=access_token), 200
+
+    return jsonify({"message": "Invalid credentials"}), 401
+
+@api_bp.route('/logout', methods=['POST'])
 @jwt_required()
-def protected():
-    current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
-
-    if not user:
-        return jsonify({"message": "User not found"}), 404
-
-    return jsonify({
-        "user_id": str(user.user_id),
-        "username": user.username,
-        "email": user.email,
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-        "account_type": user.account_type,
-        "date_joined": user.date_joined.isoformat()
-    }), 200
-
+def logout():
+    jti = get_jwt()['jti']  # Get the JWT ID
+    blacklist.add(jti)      # Add the JWT ID to the blacklist
+    return jsonify({"message": "Successfully logged out"}), 200
+# ======================
+# Shared Routes
+# ======================
 
 @api_bp.route('/profile', methods=['GET'])
 @jwt_required()
-def profile():
-    current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
-
+def get_profile():
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+    
     if not user:
-        return jsonify({"message": "User not found"}), 404
-
-    return jsonify({
+        return jsonify({"error": "User not found"}), 404
+    
+    profile_data = {
         "username": user.username,
         "email": user.email,
         "first_name": user.first_name,
         "last_name": user.last_name,
         "account_type": user.account_type,
         "date_joined": user.date_joined.isoformat()
-    }), 200
+    }
+    
+    if user.account_type == 'student' and user.student_profile:
+        profile_data.update({
+            "major": user.student_profile.major,
+            "year": user.student_profile.year
+        })
+    elif user.account_type == 'tutor' and user.tutor_profile:
+        profile_data.update({
+            "hourly_rate": float(user.tutor_profile.hourly_rate),
+            "bio": user.tutor_profile.bio,
+            "average_rating": user.tutor_profile.calculate_average_rating()
+        })
+    
+    return jsonify(profile_data), 200
 
-# Updates user's profile
 @api_bp.route('/profile', methods=['PUT'])
 @jwt_required()
 def update_profile():
     user_id = get_jwt_identity()
     user = User.query.get(user_id)
-
     if not user:
-        return jsonify({"message": "User not found"}), 404
+        return jsonify({"error": "User not found"}), 404
 
     data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
 
-    required_fields = ['username', 'email', 'first_name', 'last_name']
-    if not all(field in data for field in required_fields):
-        return jsonify({"message": "Missing required user fields"}), 400
+    try:
+        # Update base user fields
+        if 'email' in data and data['email'] != user.email:
+            if User.query.filter_by(email=data['email']).first():
+                return jsonify({"error": "Email already in use"}), 409
+            user.email = data['email']
 
-    # Update base user fields
-    user.username = data['username']
-    user.email = data['email']
-    user.first_name = data['first_name']
-    user.last_name = data['last_name']
+        for field in ['first_name', 'last_name']:
+            if field in data:
+                setattr(user, field, data[field])
 
-    if 'password' in data:
-        user.set_password(data['password'])
+        if 'password' in data:
+            user.set_password(data['password'])
 
-    # Student-specific
-    if user.account_type == 'student':
-        if 'major' not in data or 'year' not in data:
-            return jsonify({"message": "Missing major or year for student"}), 400
+        # Update profile-specific fields
+        if user.account_type == 'student':
+            for field in ['major', 'year']:
+                if field in data:
+                    setattr(user.student_profile, field, data[field])
+        else:
+            if 'hourly_rate' in data:
+                user.tutor_profile.hourly_rate = float(data['hourly_rate'])
+            if 'bio' in data:
+                user.tutor_profile.bio = data['bio']
 
-        student = user.students[0] if user.students else None
-        if not student:
-            student = Student(user_id=user.user_id)
-            db.session.add(student)
+        db.session.commit()
+        return jsonify({"message": "Profile updated successfully"}), 200
 
-        student.major = data['major']
-        student.year = data['year']
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
 
-    # Tutor-specific
-    elif user.account_type == 'tutor':
-        if 'hourly_rate' not in data:
-            return jsonify({"message": "Missing hourly_rate for tutor"}), 400
-
-        tutor = user.tutors[0] if user.tutors else None
-        if not tutor:
-            tutor = Tutor(user_id=user.user_id)
-            db.session.add(tutor)
-
-        tutor.available_hours = data.get('available_hours', '')
-        tutor.hourly_rate = data['hourly_rate']
-
-    db.session.commit()
-
-    return jsonify({"message": "Profile updated successfully"}), 200
-
-
-# Gets a specific account's account type
-@api_bp.route('/users/<uuid:user_id>/account-type', methods=['GET'])
+@api_bp.route('/classes', methods=['GET'])
 @jwt_required()
-def get_account_type(user_id):
-    user = User.query.get(user_id)
+def get_classes():
+    classes = Class.query.options(db.joinedload(Class.subject)).all()
+    
+    return jsonify([{
+        "id": str(c.id),
+        "subject": {
+            "id": str(c.subject.id),
+            "name": c.subject.name,
+            "code": c.subject.code
+        },
+        "section": c.section,
+        "tutor_count": len(c.tutors)
+    } for c in classes]), 200
 
-    if not user:
-        return jsonify({"message": "User not found"}), 404
+# JWT
 
-    return jsonify({
-        "user_id": str(user.user_id),
-        "account_type": user.account_type
-    }), 200
+# Token revocation check
+@jwt.token_in_blocklist_loader
+def check_if_token_revoked(jwt_header, jwt_payload):
+    jti = jwt_payload['jti']  # Get the JWT ID
+    print("Checking if token is revoked:", jti)  # Debugging
+    return jti in blacklist   # Check if the JWT ID is in the blacklist
 
-# Gets all accounts' account types
-@api_bp.route('/users/account-type', methods=['GET'])
+# Checks JWT claims
+@api_bp.route('/debug-token', methods=['GET'])
 @jwt_required()
-def get_all_account_types():
-    users = User.query.all()
-    user_list = [{
-        "user_id": str(user.user_id),
-        "username": user.username,
-        "account_type": user.account_type
-    } for user in users]
-
-    return jsonify(user_list), 200
+def debug_token():
+    claims = get_jwt()  # Get JWT claims
+    return jsonify(claims), 200

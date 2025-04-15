@@ -14,4 +14,3 @@ login_manager = LoginManager()
 
 # Initialize Flask-JWT-Manager
 jwt = JWTManager()
-

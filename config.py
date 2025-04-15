@@ -15,3 +15,10 @@ class Config:
     # Database settings
     SQLALCHEMY_DATABASE_URI = 'postgresql://tutormatch:password1234@localhost/tutormatch_db'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # Flask Mail Settings
+    MAIL_SERVER = 'smtp.gmail.com'
+    MAIL_PORT = 587
+    MAIL_USE_TLS = True
+    MAIL_USERNAME = 'tutormatch.test@gmail.com'
+    MAIL_PASSWORD = 'spni opwe lano ystk'
