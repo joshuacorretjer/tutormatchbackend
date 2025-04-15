@@ -43,36 +43,7 @@ def find_tutors():
         ]
     } for t in tutors]), 200
 
-@api_bp.route('/students/sessions', methods=['POST'])
-@student_required
-def book_session():
-    student_id = get_jwt_identity()
-    data = request.get_json()
-    
-    slot = TimeSlot.query.filter_by(
-        id=data['slot_id'],
-        status='available'
-    ).first()
-    
-    if not slot:
-        return jsonify({"message": "Timeslot not available"}), 400
-    
-    # Verify student is enrolled in the class?
-    # Add your custom logic here
-    
-    slot.status = 'booked'
-    slot.student_id = student_id
-    slot.class_id = data['class_id']
-    
-    db.session.commit()
-    
-    return jsonify({
-        "message": "Session booked",
-        "session_id": str(slot.id),
-        "start_time": slot.start_time.isoformat()
-    }), 201
-
-@api_bp.route('/students/sessions/book', methods=['POST'], endpoint='book_tutoring_session')  # Unique name
+@api_bp.route('/students/sessions/book', methods=['POST'])  # Unique name
 @student_required
 def book_session():
     # Get current student ID from auth token
