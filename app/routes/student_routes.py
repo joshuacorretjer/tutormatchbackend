@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from datetime import datetime
 from ..models import db, User, Tutor, Student, Class, Subject, TimeSlot, Review
-from ..utils.decorators import tutor_required, student_required, role_required
+from ..utils.decorators import student_required
 from . import api_bp
 
 @api_bp.route('/students/tutors', methods=['GET'])
