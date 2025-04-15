@@ -21,44 +21,20 @@ blacklist = set()
 # Authentication Routes
 # ======================
 
+
 @api_bp.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
-    if not data:
-        return jsonify({"error": "Invalid JSON"}), 400
+    
+    # Required fields check
+    required_fields = ['email', 'password', 'account_type', 'first_name', 'last_name']
+    if data['account_type'] == 'tutor':
+        required_fields.append('hourly_rate')
 
-    # Validate required fields
-    required_fields = {
-        'all': ['username', 'email', 'first_name', 'last_name', 'account_type', 'password'],
-        'student': ['major', 'year'],
-        'tutor': ['hourly_rate']
-    }
-
-    missing_fields = [f for f in required_fields['all'] if f not in data]
-    if missing_fields:
-        return jsonify({"error": f"Missing fields: {', '.join(missing_fields)}"}), 400
-
-    # Check existing users
-    if User.query.filter_by(username=data['username']).first():
-        return jsonify({"error": "Username already exists"}), 409
-    if User.query.filter_by(email=data['email']).first():
-        return jsonify({"error": "Email already exists"}), 409
-
-    # Validate role-specific fields
-    if data['account_type'] == 'student':
-        missing = [f for f in required_fields['student'] if f not in data]
-    elif data['account_type'] == 'tutor':
-        missing = [f for f in required_fields['tutor'] if f not in data]
-    else:
-        return jsonify({"error": "Invalid account type"}), 400
-
-    if missing:
-        return jsonify({"error": f"Missing fields for {data['account_type']}: {', '.join(missing)}"}), 400
+    # ... validation logic ...
 
     try:
-        # Create user
         user = User(
-            username=data['username'],
             email=data['email'],
             first_name=data['first_name'],
             last_name=data['last_name'],
@@ -66,28 +42,19 @@ def register():
         )
         user.set_password(data['password'])
         db.session.add(user)
-        db.session.flush()
+        db.session.flush()  # Get user ID before creating tutor profile
 
-        # Create profile
-        if user.account_type == 'student':
-            profile = Student(
-                user_id=user.id,
-                major=data['major'],
-                year=int(data['year']))
-        else:
-            profile = Tutor(
-                user_id=user.id,
-                hourly_rate=float(data['hourly_rate']),
-                bio=data.get('bio', '')
+        # Critical: Create tutor profile for tutor accounts
+        if user.account_type == 'tutor':
+            tutor = Tutor(
+                user_id=user.id,  # This links user <-> tutor
+                hourly_rate=float(data['hourly_rate'])
+                # Add other tutor-specific fields
             )
-        db.session.add(profile)
-        db.session.commit()
+            db.session.add(tutor)
 
-        return jsonify({
-            "message": "User registered successfully",
-            "user_id": str(user.id),
-            "account_type": user.account_type
-        }), 201
+        db.session.commit()
+        return jsonify({"message": "User registered successfully"}), 201
 
     except Exception as e:
         db.session.rollback()

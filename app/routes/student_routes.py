@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from datetime import datetime
-from ..models import db, User, Tutor, Student, Class, Subject, TimeSlot, Review
+from ..models import TutoringSession, db, User, Tutor, Student, Class, Subject, TimeSlot, Review
 from ..utils.decorators import student_required
 from . import api_bp
 
@@ -71,3 +71,51 @@ def book_session():
         "session_id": str(slot.id),
         "start_time": slot.start_time.isoformat()
     }), 201
+
+@api_bp.route('/students/sessions/book', methods=['POST'])
+@student_required
+def book_session():
+    # Get current student ID from auth token
+    student_id = get_jwt_identity()
+
+    data = request.get_json()
+    timeslot_id = data.get('timeslot_id')  
+
+    if not timeslot_id:
+        return jsonify({"error": "Timeslot ID is required"}), 400
+
+    # Rest of your code remains the same...
+    timeslot = TimeSlot.query.get(timeslot_id)
+    if not timeslot:
+        return jsonify({"error": "Timeslot not found"}), 404
+
+    if timeslot.status != 'available':
+        return jsonify({"error": "Timeslot is not available"}), 400
+
+    if timeslot.start_time < datetime.utcnow():
+        return jsonify({"error": "Cannot book past timeslots"}), 400
+
+    try:
+        timeslot.status = 'booked'
+        timeslot.student_id = student_id
+
+        session = TutoringSession(
+            timeslot_id=timeslot.id,
+            student_id=student_id,
+            tutor_id=timeslot.tutor_id
+        )
+        db.session.add(session)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Session booked successfully",
+            "session_id": str(session.id),
+            "timeslot_id": str(timeslot.id),
+            "tutor_id": str(timeslot.tutor_id),
+            "start_time": timeslot.start_time.isoformat(),
+            "end_time": timeslot.end_time.isoformat()
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
