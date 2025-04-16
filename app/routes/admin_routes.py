@@ -162,22 +162,34 @@ def create_subject():
 @admin_required
 def create_class():
     data = request.json
-    if not all(k in data for k in ['subject_id', 'name', 'code']):
+    ##if not all(k in data for k in ['subject_id', 'name', 'code']):
+    ##    return jsonify({"message": "Missing required fields"}), 400
+    
+    if not all(k in data for k in ['subject_id', 'section']):
         return jsonify({"message": "Missing required fields"}), 400
     
     if not (subject := Subject.query.get(data['subject_id'])):
         return jsonify({"message": "Subject not found"}), 404
 
+    ##class_ = Class(
+    ##    name=data['name'],
+    ##    code=data['code'],
+    ##    subject_id=subject.id
+    ##)
     class_ = Class(
-        name=data['name'],
-        code=data['code'],
+        section=data['section'],
         subject_id=subject.id
     )
     db.session.add(class_)
     db.session.commit()
+    ##return jsonify({
+    ##    "id": str(class_.id),
+    ##    "name": class_.name,
+    ##    "code": class_.code,
+    ##    "subject_id": str(subject.id)
+    ##}), 201
     return jsonify({
         "id": str(class_.id),
-        "name": class_.name,
-        "code": class_.code,
+        "section": class_.section,
         "subject_id": str(subject.id)
     }), 201

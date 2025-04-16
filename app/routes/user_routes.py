@@ -27,7 +27,7 @@ def register():
     data = request.get_json()
     
     # Required fields check
-    required_fields = ['email', 'password', 'account_type', 'first_name', 'last_name']
+    required_fields = ['username', 'email', 'password', 'account_type', 'first_name', 'last_name']
     if data['account_type'] == 'tutor':
         required_fields.append('hourly_rate')
 
@@ -35,6 +35,7 @@ def register():
 
     try:
         user = User(
+            username=data['username'],
             email=data['email'],
             first_name=data['first_name'],
             last_name=data['last_name'],
@@ -52,6 +53,15 @@ def register():
                 # Add other tutor-specific fields
             )
             db.session.add(tutor)
+
+        # Critical: Create student profile for student accounts
+        elif user.account_type == 'student':
+            student = Student(
+                user_id=user.id, # This links user <-> student
+                major=data['major'],
+                year=data.get('year')  # Optional
+            )
+            db.session.add(student)
 
         db.session.commit()
         return jsonify({"message": "User registered successfully"}), 201
