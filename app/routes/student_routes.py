@@ -45,46 +45,135 @@ def find_tutors():
 
 @api_bp.route('/students/sessions', methods=['POST'])
 @student_required
+# def book_session():
+#     student_id = get_jwt_identity()
+#     data = request.get_json()
+    
+#     slot = TimeSlot.query.filter_by(
+#         id=data['slot_id'],
+#         status='available'
+#     ).first()
+    
+#     if not slot:
+#         return jsonify({"message": "Timeslot not available"}), 400
+    
+#     # Verify student is enrolled in the class?
+#     # Add your custom logic here
+    
+#     slot.status = 'booked'
+#     slot.student_id = student_id
+#     slot.class_id = data['class_id']
+    
+#     db.session.commit()
+    
+#     return jsonify({
+#         "message": "Session booked",
+#         "session_id": str(slot.id),
+#         "start_time": slot.start_time.isoformat()
+#     }), 201
 def book_session():
-    student_id = get_jwt_identity()
+    user_id = get_jwt_identity()
+
+    # Fetch student profile by user_id
+    student = Student.query.filter_by(user_id=user_id).first()
+    if not student:
+        return jsonify({"error": "Student profile not found"}), 404
+
     data = request.get_json()
-    
-    slot = TimeSlot.query.filter_by(
-        id=data['slot_id'],
-        status='available'
-    ).first()
-    
+    slot_id = data.get('slot_id')
+
+    if not slot_id:
+        return jsonify({"error": "Timeslot ID is required"}), 400
+
+    slot = TimeSlot.query.filter_by(id=slot_id, status='available').first()
     if not slot:
         return jsonify({"message": "Timeslot not available"}), 400
-    
-    # Verify student is enrolled in the class?
-    # Add your custom logic here
-    
-    slot.status = 'booked'
-    slot.student_id = student_id
-    slot.class_id = data['class_id']
-    
-    db.session.commit()
-    
-    return jsonify({
-        "message": "Session booked",
-        "session_id": str(slot.id),
-        "start_time": slot.start_time.isoformat()
-    }), 201
+
+    if slot.start_time < datetime.utcnow():
+        return jsonify({"error": "Cannot book past timeslots"}), 400
+
+    # Optionally: Check if student is enrolled in class
+    # (add logic if needed)
+
+    try:
+        slot.status = 'booked'
+        slot.student_id = student.id
+        slot.class_id = data.get('class_id')  # Optional
+
+        db.session.commit()
+
+        return jsonify({
+            "message": "Session booked",
+            "session_id": str(slot.id),
+            "start_time": slot.start_time.isoformat()
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 @api_bp.route('/students/sessions/book', methods=['POST'], endpoint='book_tutoring_session')  # Unique name
 @student_required
+# def book_session():
+#     # Get current student ID from auth token
+#     student_id = get_jwt_identity()
+
+#     data = request.get_json()
+#     timeslot_id = data.get('timeslot_id')  
+
+#     if not timeslot_id:
+#         return jsonify({"error": "Timeslot ID is required"}), 400
+
+#     # Rest of your code remains the same...
+#     timeslot = TimeSlot.query.get(timeslot_id)
+#     if not timeslot:
+#         return jsonify({"error": "Timeslot not found"}), 404
+
+#     if timeslot.status != 'available':
+#         return jsonify({"error": "Timeslot is not available"}), 400
+
+#     if timeslot.start_time < datetime.utcnow():
+#         return jsonify({"error": "Cannot book past timeslots"}), 400
+
+#     try:
+#         timeslot.status = 'booked'
+#         timeslot.student_id = student_id
+
+#         session = TutoringSession(
+#             timeslot_id=timeslot.id,
+#             student_id=student_id,
+#             tutor_id=timeslot.tutor_id
+#         )
+#         db.session.add(session)
+#         db.session.commit()
+
+#         return jsonify({
+#             "message": "Session booked successfully",
+#             "session_id": str(session.id),
+#             "timeslot_id": str(timeslot.id),
+#             "tutor_id": str(timeslot.tutor_id),
+#             "start_time": timeslot.start_time.isoformat(),
+#             "end_time": timeslot.end_time.isoformat()
+#         }), 200
+
+#     except Exception as e:
+#         db.session.rollback()
+#         return jsonify({"error": str(e)}), 500
 def book_session():
-    # Get current student ID from auth token
-    student_id = get_jwt_identity()
+    # Get current user (student) ID from auth token
+    user_id = get_jwt_identity()
+
+    # Fetch the Student record for this user
+    student = Student.query.filter_by(user_id=user_id).first()
+    if not student:
+        return jsonify({"error": "Student profile not found"}), 400
 
     data = request.get_json()
-    timeslot_id = data.get('timeslot_id')  
+    timeslot_id = data.get('timeslot_id')
 
     if not timeslot_id:
         return jsonify({"error": "Timeslot ID is required"}), 400
 
-    # Rest of your code remains the same...
     timeslot = TimeSlot.query.get(timeslot_id)
     if not timeslot:
         return jsonify({"error": "Timeslot not found"}), 404
@@ -97,11 +186,11 @@ def book_session():
 
     try:
         timeslot.status = 'booked'
-        timeslot.student_id = student_id
+        timeslot.student_id = student.id  # this is fine — timeslot uses students.id
 
         session = TutoringSession(
             timeslot_id=timeslot.id,
-            student_id=student_id,
+            student_id=student.user_id,  # this is the fix — tutoring_session uses user.id
             tutor_id=timeslot.tutor_id
         )
         db.session.add(session)
