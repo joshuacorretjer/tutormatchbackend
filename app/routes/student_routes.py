@@ -112,7 +112,7 @@ def book_session():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
-@api_bp.route('/students/sessions/book', methods=['POST'], endpoint='book_tutoring_session')  # Unique name
+@api_bp.route('/students/sessions/book', methods=['POST'], endpoint='book_tutoring_session')  # Unique name (This method still has problems, reason is commented below on line 193)
 @student_required
 # def book_session():
 #     # Get current student ID from auth token
@@ -190,7 +190,7 @@ def book_session():
 
         session = TutoringSession(
             timeslot_id=timeslot.id,
-            student_id=student.user_id,  # this is the fix — tutoring_session uses user.id
+            student_id=student.user_id,  # this line is where I think the problem lies
             tutor_id=timeslot.tutor_id
         )
         db.session.add(session)
