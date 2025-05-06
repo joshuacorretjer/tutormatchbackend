@@ -76,6 +76,10 @@ def login():
     username_or_email = data.get('username_or_email')  # Match JSON key exactly
     password = data.get('password')
 
+    if request.method == 'OPTIONS':
+        print("🔁 CORS preflight check passed!")
+        return '', 200  # CORS preflight
+
     if not username_or_email or not password:
         return jsonify({"message": "Username / email and password are required"}), 400
 
@@ -90,6 +94,7 @@ def login():
             additional_claims={"account_type": user.account_type}
         )
         return jsonify(access_token=access_token), 200
+    print("📥 Login attempt:", data)
 
     return jsonify({"message": "Invalid credentials"}), 401
 
