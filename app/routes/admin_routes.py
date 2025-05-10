@@ -14,9 +14,9 @@ def validate_uuid(uuid_str):
 
 def get_profile_data(user):
     """Extracts role-specific profile data"""
-    if user.role == 'student' and user.student_profile:
+    if user.account_type == 'student' and user.student_profile:
         return {"major": user.student_profile.major, "year": user.student_profile.year}
-    elif user.role == 'tutor' and user.tutor_profile:
+    elif user.account_type == 'tutor' and user.tutor_profile:
         return {
             "hourly_rate": float(user.tutor_profile.hourly_rate),
             "bio": user.tutor_profile.bio,
@@ -31,7 +31,7 @@ def create_user():
     data = request.get_json()
     
     # Validate required fields
-    required = ['email', 'password', 'first_name', 'last_name', 'role']
+    required = ['email', 'password', 'first_name', 'last_name', 'account_type']
     if missing := [f for f in required if f not in data]:
         return jsonify({"message": f"Missing fields: {', '.join(missing)}"}), 400
 
@@ -44,7 +44,7 @@ def create_user():
         email=data['email'],
         first_name=data['first_name'],
         last_name=data['last_name'],
-        role=data['role']
+        account_type=data['account_type']
     )
     user.set_password(data['password'])
     db.session.add(user)
@@ -73,7 +73,7 @@ def create_user():
     return jsonify({
         "message": "User created",
         "user_id": str(user.id),
-        "role": user.role
+        "account_type": user.account_type
     }), 201
 
 @api_bp.route('/admin/users', methods=['GET'])
@@ -89,7 +89,7 @@ def get_users():
         "email": u.email,
         "first_name": u.first_name,
         "last_name": u.last_name,
-        "role": u.role,
+        "account_type": u.account_type,
         "profile": get_profile_data(u)
     } for u in users]), 200
 
@@ -110,31 +110,31 @@ def update_user(user_id):
     user.last_name = data.get('last_name', user.last_name)
     
     # Handle role changes
-    if 'role' in data and data['role'] != user.role:
+    if 'account_type' in data and data['account_type'] != user.account_type:
         # Delete old profile
-        if user.role == 'student' and user.student_profile:
+        if user.account_type == 'student' and user.student_profile:
             db.session.delete(user.student_profile)
-        elif user.role == 'tutor' and user.tutor_profile:
+        elif user.account_type == 'tutor' and user.tutor_profile:
             db.session.delete(user.tutor_profile)
         
         # Create new profile
-        user.role = data['role']
-        if user.role == 'student':
+        user.account_type = data['account_type']
+        if user.account_type == 'student':
             user.student_profile = Student(
                 major=data.get('major', 'Undeclared'),
                 year=data.get('year', 1)
             )
-        elif user.role == 'tutor':
+        elif user.account_type == 'tutor':
             user.tutor_profile = Tutor(
                 hourly_rate=data.get('hourly_rate', 0.0),
                 bio=data.get('bio', '')
             )
 
     # Update profile data
-    if user.role == 'student' and user.student_profile:
+    if user.account_type == 'student' and user.student_profile:
         user.student_profile.major = data.get('major', user.student_profile.major)
         user.student_profile.year = data.get('year', user.student_profile.year)
-    elif user.role == 'tutor' and user.tutor_profile:
+    elif user.account_type == 'tutor' and user.tutor_profile:
         user.tutor_profile.hourly_rate = data.get('hourly_rate', user.tutor_profile.hourly_rate)
         user.tutor_profile.bio = data.get('bio', user.tutor_profile.bio)
         if 'classes' in data:

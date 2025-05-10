@@ -25,7 +25,7 @@ blacklist = set()
 @api_bp.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
-    
+
     # Required fields check
     required_fields = ['username', 'email', 'password', 'account_type', 'first_name', 'last_name']
     if data['account_type'] == 'tutor':
@@ -49,10 +49,20 @@ def register():
         if user.account_type == 'tutor':
             tutor = Tutor(
                 user_id=user.id,  # This links user <-> tutor
-                hourly_rate=float(data['hourly_rate'])
+                hourly_rate=float(data['hourly_rate']), 
+                bio=data.get('bio')  # Optional field
                 # Add other tutor-specific fields
             )
             db.session.add(tutor)
+            '''
+            # Handle class associations
+            class_ids = data.get('classes', [])  # Optional field
+            if class_ids:
+                classes = Class.query.filter(Class.id.in_(class_ids)).all()
+                if len(classes) != len(class_ids):
+                    return jsonify({"error": "One or more class IDs are invalid"}), 400
+                tutor.classes.extend(classes)
+            '''
 
         # Critical: Create student profile for student accounts
         elif user.account_type == 'student':
@@ -62,12 +72,12 @@ def register():
                 year=data.get('year')  # Optional
             )
             db.session.add(student)
-
         db.session.commit()
         return jsonify({"message": "User registered successfully"}), 201
 
     except Exception as e:
         db.session.rollback()
+        print("Registration error:", e)
         return jsonify({"error": str(e)}), 400
 
 @api_bp.route('/login', methods=['POST'])
@@ -76,9 +86,9 @@ def login():
     username_or_email = data.get('username_or_email')  # Match JSON key exactly
     password = data.get('password')
 
-    if request.method == 'OPTIONS':
-        print("🔁 CORS preflight check passed!")
-        return '', 200  # CORS preflight
+    print("📥 Login attempt:")
+    print("→ Email/Username:", username_or_email)
+    print("→ Password:", password)
 
     if not username_or_email or not password:
         return jsonify({"message": "Username / email and password are required"}), 400
@@ -88,13 +98,19 @@ def login():
         (User.email == username_or_email)
     ).first()
 
+    if not user:
+        return jsonify({"message": "Invalid credentials"}), 401
+
     if user and user.check_password(password):
         access_token = create_access_token(
             identity=str(user.id),
             additional_claims={"account_type": user.account_type}
         )
-        return jsonify(access_token=access_token), 200
-    print("📥 Login attempt:", data)
+        return jsonify(
+            access_token=access_token,
+            username_or_email=user.username,  # or user.email
+            account_type=user.account_type
+        ), 200
 
     return jsonify({"message": "Invalid credentials"}), 401
 

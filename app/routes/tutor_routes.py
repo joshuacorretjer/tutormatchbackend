@@ -49,30 +49,68 @@ def create_availability():
         "status": slot.status
     }), 201
 
-@api_bp.route('/tutor/sessions', methods=['GET'])
+@api_bp.route('/tutor/availability', methods=['GET'])
 @tutor_required
-def get_tutor_sessions():
-    # Get USER ID from JWT
+def get_tutor_availability():
     user_id = get_jwt_identity()
-    
-    # Find linked TUTOR PROFILE
+
     tutor = Tutor.query.filter_by(user_id=user_id).first()
     if not tutor:
         return jsonify({"error": "Tutor profile not found"}), 404
-    
-    # Use TUTOR'S ID to query timeslots
+
+    slots = TimeSlot.query.filter_by(tutor_id=tutor.id).order_by(TimeSlot.start_time).all()
+
+    return jsonify([{
+        "id": str(s.id),
+        "start_time": s.start_time.isoformat(),
+        "end_time": s.end_time.isoformat(),
+        "status": s.status,
+        "student": {
+            "name": f"{s.student.user.first_name} {s.student.user.last_name}",
+            "major": s.student.major
+        } if s.student else None
+    } for s in slots]), 200
+
+@api_bp.route('/tutor/availability/<slot_id>', methods=['DELETE'])
+@tutor_required
+def delete_availability(slot_id):
+    user_id = get_jwt_identity()
+
+    # Get the tutor profile
+    tutor = Tutor.query.filter_by(user_id=user_id).first()
+    if not tutor:
+        return jsonify({"error": "Tutor profile not found"}), 404
+
+    # Ensure the slot belongs to the logged-in tutor
+    slot = TimeSlot.query.filter_by(id=slot_id, tutor_id=tutor.id).first()
+    if not slot:
+        return jsonify({"error": "Slot not found or not authorized to delete"}), 404
+
+    db.session.delete(slot)
+    db.session.commit()
+
+    return jsonify({"message": "Slot deleted"}), 200
+
+@api_bp.route('/tutor/sessions', methods=['GET'])
+@tutor_required
+def get_tutor_sessions():
+    user_id = get_jwt_identity()
+
+    tutor = Tutor.query.filter_by(user_id=user_id).first()
+    if not tutor:
+        return jsonify({"error": "Tutor profile not found"}), 404
+
     query = TimeSlot.query.filter_by(tutor_id=tutor.id)
-    
-    # Rest of your code remains the same...
+
     status_filter = request.args.get('status', 'upcoming')
-    
+
     if status_filter == 'upcoming':
         query = query.filter(TimeSlot.start_time > datetime.utcnow())
     elif status_filter == 'completed':
         query = query.filter(TimeSlot.end_time < datetime.utcnow())
-    
+
     sessions = query.order_by(TimeSlot.start_time).all()
-    
+
     return jsonify([{
         "id": str(s.id),
         "start_time": s.start_time.isoformat(),
@@ -82,11 +120,9 @@ def get_tutor_sessions():
             "name": f"{s.student.user.first_name} {s.student.user.last_name}",
             "major": s.student.major
         } if s.student else None,
-        "class": {
-            "name": s.class_ref.name,
-            "code": s.class_ref.code
-        } if s.class_ref else None
+        # Class info removed since TimeSlot has no class_ref
     } for s in sessions]), 200
+
 
 @api_bp.route('/<uuid:tutor_id>', methods=['GET'])
 def get_tutor_profile(tutor_id):
@@ -95,3 +131,29 @@ def get_tutor_profile(tutor_id):
     include_reviews = request.args.get('reviews', 'false').lower() == 'true'
     
     return jsonify(tutor.to_dict(include_reviews=include_reviews)), 200
+
+@api_bp.route('/tutor/<uuid:tutor_id>/classes', methods=['POST'])
+@tutor_required
+def associate_tutor_with_classes(tutor_id):
+    tutor = Tutor.query.get(tutor_id)
+    if not tutor:
+        return jsonify({"message": "Tutor not found"}), 404
+
+    data = request.get_json()
+    class_ids = data.get("class_ids", [])
+
+    if not class_ids:
+        return jsonify({"message": "No class IDs provided"}), 400
+
+    try:
+        for class_id in class_ids:
+            class_instance = Class.query.get(class_id)
+            if class_instance and class_instance not in tutor.classes:
+                tutor.classes.append(class_instance)
+
+        db.session.commit()
+        return jsonify({"message": "Tutor successfully associated with classes"}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500

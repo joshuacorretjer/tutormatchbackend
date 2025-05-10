@@ -9,7 +9,8 @@ def create_app():
     ##CORS(app)
     ##CORS(api_bp, methods=["OPTIONS", "POST", "GET", "PUT", "DELETE"])  
     ##CORS(api_bp)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    ##CORS(app, resources={r"/api/*": {"origins": "*"}})
+    CORS(app, resources={r"/api/*": {"origins": "*"}}, allow_headers=["Authorization", "Content-Type"])
 
     # Load configuration
     app.config.from_object('config.Config')
