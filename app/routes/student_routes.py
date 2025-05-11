@@ -196,4 +196,4 @@ def get_booked_sessions_student():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
+    
