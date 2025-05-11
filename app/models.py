@@ -156,8 +156,8 @@ class Review(db.Model):
         }
     
 class TutoringSession(db.Model):
-    id = db.Column(db.UUID, primary_key=True, default=uuid.uuid4)
-    timeslot_id = db.Column(db.UUID, db.ForeignKey('time_slots.id'), nullable=False)
-    student_id = db.Column(db.UUID, db.ForeignKey('user.id'), nullable=False)
-    tutor_id = db.Column(db.UUID, db.ForeignKey('user.id'), nullable=False)
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    timeslot_id = db.Column(UUID(as_uuid=True), db.ForeignKey('time_slots.id'), nullable=False)
+    student_id = db.Column(UUID(as_uuid=True), db.ForeignKey('user.id'), nullable=False)
+    tutor_id = db.Column(UUID(as_uuid=True), db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
