@@ -23,6 +23,7 @@ def account_type_required(*required_account_types):
             
             # If you're including account_type in JWT claims (recommended)
             jwt_data = get_jwt()
+            print("JWT Data:", jwt_data)
             if 'account_type' in jwt_data:
                 if jwt_data['account_type'] in required_account_types:
                     return fn(*args, **kwargs)

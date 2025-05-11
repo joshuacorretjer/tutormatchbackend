@@ -6,11 +6,10 @@ from flask_cors import CORS
 
 def create_app():
     app = Flask(__name__)
-    ##CORS(app)
-    ##CORS(api_bp, methods=["OPTIONS", "POST", "GET", "PUT", "DELETE"])  
-    ##CORS(api_bp)
-    ##CORS(app, resources={r"/api/*": {"origins": "*"}})
-    CORS(app, resources={r"/api/*": {"origins": "*"}}, allow_headers=["Authorization", "Content-Type"])
+    CORS(app, 
+     resources={r"/api/*": {"origins": "*"}},
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization"])
 
     # Load configuration
     app.config.from_object('config.Config')

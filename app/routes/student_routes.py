@@ -5,7 +5,6 @@ from ..models import TutoringSession, db, User, Tutor, Student, Class, Subject, 
 from ..utils.decorators import student_required
 from . import api_bp
 from sqlalchemy import func
-
 from sqlalchemy.orm import aliased
 
 @api_bp.route('/student/tutors', methods=['GET'])
@@ -25,11 +24,11 @@ def find_tutors():
 
     # Filter by search term (first name, last name, username, or class section)
     if search_query:
-        query = query.outerjoin(Tutor.classes).outerjoin(class_alias).filter(
+        query = query.outerjoin(Tutor.classes).filter(
             (User.username.ilike(f'%{search_query}%')) |
             (User.first_name.ilike(f'%{search_query}%')) |
             (User.last_name.ilike(f'%{search_query}%')) |
-            (class_alias.section.ilike(f'%{search_query}%'))
+            (Class.section.ilike(f'%{search_query}%'))
         )
 
     # Filter by availability
@@ -85,7 +84,14 @@ def find_tutors():
             "hourly_rate": float(t.hourly_rate),
             "bio": t.bio,
             "average_rating": round(float(avg_rating), 2),
-            "upcoming_slots": [slot.start_time.isoformat() for slot in upcoming_slots]
+            "upcoming_slots": [
+                {
+                    "id": str(slot.id),
+                    "start_time": slot.start_time.isoformat(),
+                    "end_time": slot.end_time.isoformat() if slot.end_time else None  # Include end_time in the response
+                }
+                for slot in upcoming_slots
+            ]
         })
 
     return jsonify({
@@ -96,38 +102,10 @@ def find_tutors():
     }), 200
 
 
-
-
-
 @api_bp.route('/student/sessions', methods=['POST'])
 @student_required
-# def book_session():
-#     student_id = get_jwt_identity()
-#     data = request.get_json()
-    
-#     slot = TimeSlot.query.filter_by(
-#         id=data['slot_id'],
-#         status='available'
-#     ).first()
-    
-#     if not slot:
-#         return jsonify({"message": "Timeslot not available"}), 400
-    
-#     # Verify student is enrolled in the class?
-#     # Add your custom logic here
-    
-#     slot.status = 'booked'
-#     slot.student_id = student_id
-#     slot.class_id = data['class_id']
-    
-#     db.session.commit()
-    
-#     return jsonify({
-#         "message": "Session booked",
-#         "session_id": str(slot.id),
-#         "start_time": slot.start_time.isoformat()
-#     }), 201
 def book_session():
+    print("Reached book_session route")
     user_id = get_jwt_identity()
 
     # Fetch student profile by user_id
@@ -152,15 +130,26 @@ def book_session():
     # (add logic if needed)
 
     try:
+        # Create TutoringSession record
+        tutoring_session = TutoringSession(
+            timeslot_id=slot.id,
+            student_id=student.user_id, 
+            tutor_id=slot.tutor.user_id  # Assuming the tutor is linked to the timeslot
+        )
+
+        # Add to the session and commit
+        db.session.add(tutoring_session)
+
+        # Update the TimeSlot to 'booked' and link it with the student
         slot.status = 'booked'
         slot.student_id = student.id
-        slot.class_id = data.get('class_id')  # Optional
+        ##slot.class_id = data.get('class_id')  # Optional
 
         db.session.commit()
 
         return jsonify({
             "message": "Session booked",
-            "session_id": str(slot.id),
+            "session_id": str(tutoring_session.id),
             "start_time": slot.start_time.isoformat()
         }), 201
 
@@ -168,99 +157,43 @@ def book_session():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
-@api_bp.route('/student/sessions/book', methods=['POST'], endpoint='book_tutoring_session')  # Unique name (This method still has problems, reason is commented below on line 193)
+
+@api_bp.route('/student/sessions', methods=['GET'])
 @student_required
-# def book_session():
-#     # Get current student ID from auth token
-#     student_id = get_jwt_identity()
-
-#     data = request.get_json()
-#     timeslot_id = data.get('timeslot_id')  
-
-#     if not timeslot_id:
-#         return jsonify({"error": "Timeslot ID is required"}), 400
-
-#     # Rest of your code remains the same...
-#     timeslot = TimeSlot.query.get(timeslot_id)
-#     if not timeslot:
-#         return jsonify({"error": "Timeslot not found"}), 404
-
-#     if timeslot.status != 'available':
-#         return jsonify({"error": "Timeslot is not available"}), 400
-
-#     if timeslot.start_time < datetime.utcnow():
-#         return jsonify({"error": "Cannot book past timeslots"}), 400
-
-#     try:
-#         timeslot.status = 'booked'
-#         timeslot.student_id = student_id
-
-#         session = TutoringSession(
-#             timeslot_id=timeslot.id,
-#             student_id=student_id,
-#             tutor_id=timeslot.tutor_id
-#         )
-#         db.session.add(session)
-#         db.session.commit()
-
-#         return jsonify({
-#             "message": "Session booked successfully",
-#             "session_id": str(session.id),
-#             "timeslot_id": str(timeslot.id),
-#             "tutor_id": str(timeslot.tutor_id),
-#             "start_time": timeslot.start_time.isoformat(),
-#             "end_time": timeslot.end_time.isoformat()
-#         }), 200
-
-#     except Exception as e:
-#         db.session.rollback()
-#         return jsonify({"error": str(e)}), 500
-def book_session():
-    # Get current user (student) ID from auth token
+def get_booked_sessions_student():
     user_id = get_jwt_identity()
 
-    # Fetch the Student record for this user
-    student = Student.query.filter_by(user_id=user_id).first()
-    if not student:
-        return jsonify({"error": "Student profile not found"}), 400
-
-    data = request.get_json()
-    timeslot_id = data.get('timeslot_id')
-
-    if not timeslot_id:
-        return jsonify({"error": "Timeslot ID is required"}), 400
-
-    timeslot = TimeSlot.query.get(timeslot_id)
-    if not timeslot:
-        return jsonify({"error": "Timeslot not found"}), 404
-
-    if timeslot.status != 'available':
-        return jsonify({"error": "Timeslot is not available"}), 400
-
-    if timeslot.start_time < datetime.utcnow():
-        return jsonify({"error": "Cannot book past timeslots"}), 400
-
     try:
-        timeslot.status = 'booked'
-        timeslot.student_id = student.id  # this is fine — timeslot uses students.id
+        # Get the student's TutoringSession entries
+        sessions = db.session.query(
+            TutoringSession,
+            TimeSlot,
+            User  # Tutor's User info
+        ).join(
+            TimeSlot, TutoringSession.timeslot_id == TimeSlot.id
+        ).join(
+            User, TutoringSession.tutor_id == User.id
+        ).filter(
+            TutoringSession.student_id == user_id
+        ).order_by(TimeSlot.start_time.desc()).all()
 
-        session = TutoringSession(
-            timeslot_id=timeslot.id,
-            student_id=student.id,  # this line is where I think the problem lies
-            tutor_id=timeslot.tutor_id
-        )
-        db.session.add(session)
-        db.session.commit()
+        # Build response list
+        result = []
+        for session, slot, tutor_user in sessions:
+            result.append({
+                "session_id": str(session.id),
+                "start_time": slot.start_time.isoformat(),
+                "end_time": slot.end_time.isoformat(),
+                "status": slot.status,
+                "tutor": {
+                    "id": str(tutor_user.id),
+                    "first_name": tutor_user.first_name,
+                    "last_name": tutor_user.last_name,
+                }
+            })
 
-        return jsonify({
-            "message": "Session booked successfully",
-            "session_id": str(session.id),
-            "timeslot_id": str(timeslot.id),
-            "tutor_id": str(timeslot.tutor_id),
-            "start_time": timeslot.start_time.isoformat(),
-            "end_time": timeslot.end_time.isoformat()
-        }), 200
+        return jsonify(result), 200
 
     except Exception as e:
-        db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
