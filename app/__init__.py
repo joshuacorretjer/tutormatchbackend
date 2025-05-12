@@ -7,7 +7,7 @@ from flask_cors import CORS
 def create_app():
     app = Flask(__name__)
     CORS(app, 
-     origins=["https://tutor-match.herokuapp.com"],
+     origins=["https://tutor-match-4ce860e71f03.herokuapp.com/"],
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
      allow_headers=["Content-Type", "Authorization"])
 
