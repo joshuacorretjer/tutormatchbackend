@@ -13,7 +13,7 @@ class Config:
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
 
     # Database settings
-    SQLALCHEMY_DATABASE_URI = 'postgresql://tutormatch:password1234@localhost/tutormatch_db'
+    SQLALCHEMY_DATABASE_URI = 'os.environ.get("DATABASE_URL")'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # Flask Mail Settings
