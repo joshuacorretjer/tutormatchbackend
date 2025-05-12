@@ -45,7 +45,7 @@ class Class(db.Model):
     __tablename__ = "classes"
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     subject_id = db.Column(UUID(as_uuid=True), db.ForeignKey('subjects.id'), nullable=False)
-    section = db.Column(db.String(10))
+    section = db.Column(db.String(50))
     
     subject = db.relationship('Subject', backref='classes')
     tutors = db.relationship('Tutor', secondary='tutor_class_association', back_populates='classes')

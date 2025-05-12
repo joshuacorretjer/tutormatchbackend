@@ -1,122 +1,15 @@
-# from locust import HttpUser, task, between, TaskSet
-# import random
-# import json
-# import uuid
-# from faker import Faker
-
-# fake = Faker()
-
-# class AuthBehavior(TaskSet):
-#     def on_start(self):
-#         """Initialize test data for the virtual user"""
-#         self.registered = False  # Initialize the flag
-#         self.username = f"user_{uuid.uuid4().hex[:8]}"  # Generate unique username
-#         self.email = fake.email()
-#         self.password = "Test@1234"
-#         self.account_type = random.choice(["student", "tutor"])
-#         self.auth_token = None
-        
-#         # Tutor-specific data
-#         if self.account_type == "tutor":
-#             self.hourly_rate = round(random.uniform(15, 100), 2)
-
-#     def random_name(self):
-#         return fake.first_name(), fake.last_name()
-
-#     @task(3)
-#     def register(self):
-#         random_id = random.randint(100000, 999999)
-#         payload = {
-#             "username": f"user_{random_id}",  # Ensured unique username
-#             "email": f"test_{random_id}@example.com",
-#             "password": "ValidPass123!",
-#             "account_type": random.choice(["student", "tutor"]),
-#             "first_name": "Locust",
-#             "last_name": "User",
-#             "hourly_rate": round(random.uniform(15, 50), 2) if random.choice([True, False]) else None
-#         }
-        
-#         # Only include hourly_rate for tutors
-#         if payload["account_type"] != "tutor":
-#             payload.pop("hourly_rate", None)
-        
-#         with self.client.post("/register", json=payload, catch_response=True) as response:
-#             # First check if the request was properly formed
-#             if response.status_code == 400:
-#                 error_details = response.json()
-#                 if "username" in error_details.get("errors", {}):
-#                     response.failure(f"Username error: {error_details['errors']['username']}")
-#                 else:
-#                     response.failure(f"Validation error: {error_details}")
-            
-#             # Then check for server errors
-#             elif response.status_code >= 500:
-#                 response.failure(f"Server error: {response.status_code}")
-            
-#             # Finally check for success (201 Created is standard for registration)
-#             elif response.status_code != 201:
-#                 try:
-#                     error_msg = response.json().get("error", f"Unexpected status: {response.status_code}")
-#                     response.failure(error_msg)
-#                 except:
-#                     response.failure(f"Unexpected response: {response.status_code}")
-
-#     @task(3)
-#     def login(self):
-#         """Login task is executed only after successful registration."""
-#         if not self.registered:  # Now using the properly initialized attribute
-#             return
-            
-#         payload = {
-#             "username_or_email": self.username,
-#             "password": self.password
-#         }
-        
-#         with self.client.post("/login",
-#                             json=payload,
-#                             headers={"Content-Type": "application/json"},
-#                             catch_response=True) as response:
-#             if response.status_code == 200:
-#                 self.auth_token = response.json().get("access_token")
-#                 response.success()
-#                 self.check_protected_endpoints()
-#             else:
-#                 error = response.json().get("message", "No error details")
-#                 response.failure(f"Login failed: {error}")
-
-#     @task(1)
-#     def logout(self):
-#         """Logout only when authenticated."""
-#         if self.auth_token:
-#             headers = {
-#                 "Authorization": f"Bearer {self.auth_token}",
-#                 "Content-Type": "application/json"
-#             }
-#             with self.client.post("/logout", headers=headers, catch_response=True) as response:
-#                 if response.status_code in [200, 204]:
-#                     self.auth_token = None
-#                     response.success()
-#                 else:
-#                     response.failure(f"Logout failed: {response.status_code}")
-
-# class WebsiteUser(HttpUser):
-#     tasks = [AuthBehavior]
-#     wait_time = between(1, 5)
-#     host = "http://127.0.0.1:5000/api"
-
-from locust import HttpUser, task, between, TaskSet
+from locust import HttpUser, task, between
+from datetime import datetime, timedelta
 import random
 from faker import Faker
 
 fake = Faker()
 
-class AuthBehavior(TaskSet):
-    def on_start(self):
-        self.password = "Test@1234"
+class BookingBehavior:
+    password = "Test@1234"
 
-    def generate_user_data(self):
-        account_type = random.choice(["student", "tutor"])
-        username = fake.user_name() + str(random.randint(10000, 99999))
+    def generate_user_data(self, account_type):
+        username = fake.user_name() + str(random.randint(1000, 9999))
         email = fake.email()
         first_name = fake.first_name()
         last_name = fake.last_name()
@@ -131,64 +24,82 @@ class AuthBehavior(TaskSet):
         }
 
         if account_type == "tutor":
-            payload["hourly_rate"] = round(random.uniform(15, 100), 2)
+            payload["hourly_rate"] = round(random.uniform(15, 50), 2)
         else:
-            payload["major"] = random.choice(["Math", "English", "Physics", "History"])
+            payload["major"] = random.choice(["Math", "Physics", "Biology"])
 
         return payload
 
-    @task(3)
-    def register(self):
-        payload = self.generate_user_data()
+    def register_user(self, client, user_data):
+        return client.post("/register", json=user_data)
 
-        with self.client.post("/register", json=payload, catch_response=True) as response:
-            if response.status_code == 201:
-                response.success()
-            elif response.status_code == 400:
-                error_msg = response.text
-                response.failure(f"Registration failed (400): {error_msg}")
-            else:
-                response.failure(f"Registration failed ({response.status_code}): {response.text}")
-
-    @task(2)
-    def login(self):
-        # For now: using a fresh user to avoid username/email not found
-        user_data = self.generate_user_data()
-        reg_response = self.client.post("/register", json=user_data)
-        if reg_response.status_code != 201:
-            return
-
-        payload = {
-            "username_or_email": user_data["username"],
+    def login_user(self, client, username):
+        return client.post("/login", json={
+            "username_or_email": username,
             "password": self.password
-        }
+        })
 
-        with self.client.post("/login", json=payload, catch_response=True) as response:
-            if response.status_code == 200:
-                self.auth_token = response.json().get("access_token")
-                response.success()
-            elif response.status_code == 401:
-                response.success()  # Acceptable failure
-            else:
-                response.failure(f"Login failed ({response.status_code}): {response.text}")
+    def logout_user(self, client, token):
+        return client.post("/logout", headers={"Authorization": f"Bearer {token}"})
 
-    @task(1)
-    def logout(self):
-        if not hasattr(self, 'auth_token') or not self.auth_token:
-            return
+    def create_availability(self, client, token):
+        start = datetime.utcnow() + timedelta(minutes=10)
+        end = start + timedelta(hours=1)
 
-        headers = {
-            "Authorization": f"Bearer {self.auth_token}"
-        }
+        resp = client.post("/tutor/availability", json={
+            "start_time": start.isoformat(),
+            "end_time": end.isoformat()
+        }, headers={"Authorization": f"Bearer {token}"})
 
-        with self.client.post("/logout", headers=headers, catch_response=True) as response:
-            if response.status_code in [200, 204]:
-                self.auth_token = None
-                response.success()
-            else:
-                response.failure(f"Logout failed ({response.status_code}): {response.text}")
+        if resp.status_code == 201:
+            return resp.json()["id"]
+        return None
 
-class WebsiteUser(HttpUser):
-    tasks = [AuthBehavior]
+    def book_session(self, client, token, slot_id):
+        return client.post("/student/sessions", json={"slot_id": slot_id}, headers={"Authorization": f"Bearer {token}"})
+
+
+class FullBookingFlow(HttpUser):
     wait_time = between(1, 3)
     host = "http://127.0.0.1:5000/api"
+    behavior = BookingBehavior()
+
+    @task
+    def tutor_student_booking_flow(self):
+        # Tutor flow
+        tutor_data = self.behavior.generate_user_data("tutor")
+        print("Registering tutor:", tutor_data)
+        reg_response = self.behavior.register_user(self.client, tutor_data)
+        print("Tutor registration response:", reg_response.status_code, reg_response.text)
+        assert reg_response.status_code == 201, "Tutor registration failed"
+
+        login_response = self.behavior.login_user(self.client, tutor_data["username"])
+        assert login_response.status_code == 200, "Tutor login failed"
+        tutor_token = login_response.json()["access_token"]
+
+        slot_id = self.behavior.create_availability(self.client, tutor_token)
+        assert slot_id, "Slot creation failed"
+
+        self.behavior.logout_user(self.client, tutor_token)
+
+        # Student flow
+        student_data = self.behavior.generate_user_data("student")
+        print("Registering student:", student_data)
+        reg_response = self.behavior.register_user(self.client, student_data)
+        print("Student registration response:", reg_response.status_code, reg_response.text)
+        assert reg_response.status_code == 201, "Student registration failed"
+
+        login_response = self.behavior.login_user(self.client, student_data["username"])
+        assert login_response.status_code == 200, "Student login failed"
+        student_token = login_response.json()["access_token"]
+
+        book_response = self.behavior.book_session(self.client, student_token, slot_id)
+        assert book_response.status_code == 201, f"Booking failed: {book_response.text}"
+
+        self.behavior.logout_user(self.client, student_token)
+
+
+# This class delegates to FullBookingFlow's task
+class WebsiteUser(FullBookingFlow):
+    tasks = [FullBookingFlow.tutor_student_booking_flow]
+
